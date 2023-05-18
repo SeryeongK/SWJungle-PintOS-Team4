@@ -104,12 +104,18 @@ struct page *
 spt_find_page(struct supplemental_page_table *spt UNUSED, void *va UNUSED)
 { /*----------------[project3]-------------------*/
 
-	struct page *page = NULL;
+	/* --- SH debug --- */
+	// -- Before --
+	// struct page *page = NULL
+	// -- After -- 
+	struct page *page = (struct page*)malloc(sizeof(struct page));
 	/* pg_round_down()으로 vaddr의 페이지 번호를 얻음 */
-	uint64_t va_page_num = pg_round_down(va);
+
+	void *va_page_num = pg_round_down(va);
 	/* Create a temporary vm_entry to use for searching */
 	page->va = va_page_num;
 	/* Prepare a hash_elem for the search */
+	/* -- SH debug -- */
 	struct hash_elem *temp_hash_elem = hash_find(&spt->hash_table, &(page->hash_elem));
 	/* Check if the element was found */
 	/* 만약 존재하지 않는다면 NULL 리턴 */
@@ -292,8 +298,12 @@ vm_do_claim_page(struct page *page)
 /* Initialize new supplemental page table */
 void supplemental_page_table_init(struct supplemental_page_table *spt UNUSED)
 {
-	struct hash cur_hash = spt->hash_table;
-	hash_init(&cur_hash, vm_hash_func, vm_less_func, NULL);
+	/* --- SH debug --- */
+	/* -- Before -- */
+	// struct hash cur_hash = spt->hash_table;
+	// hash_init(&cur_hash, vm_hash_func, vm_less_func, NULL);
+	/* -- After -- */
+	hash_init(&spt->hash_table, vm_hash_func, vm_less_func, NULL);
 }
 
 /* Copy supplemental page table from src to dst */
