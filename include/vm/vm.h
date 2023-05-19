@@ -22,8 +22,9 @@ enum vm_type {
 
 	/* Auxillary bit flag marker for store information. You can add more
 	 * markers, until the value is fit in the int. */
+	VM_MARKER_STACK = (1 << 3), // indicating stack area
 	VM_MARKER_0 = (1 << 3),
-	VM_MARKER_1 = (1 << 4),
+	VM_MARKER_1 = (1 << 4), 
 
 	/* DO NOT EXCEED THIS VALUE. */
 	VM_MARKER_END = (1 << 31),
@@ -74,7 +75,7 @@ struct page {
 struct frame {
 	void *kva;
 	struct page *page;
-	struct list_elem lru_elem;
+	struct list_elem frame_elem;
 };
 
 /* The function table for page operations.
@@ -86,6 +87,13 @@ struct page_operations {
 	bool (*swap_out) (struct page *);
 	void (*destroy) (struct page *);
 	enum vm_type type;
+};
+
+struct lazy_load_info {
+	struct file *file;
+	off_t ofs;
+	size_t page_read_bytes;
+	size_t page_zero_bytes;
 };
 
 #define swap_in(page, v) (page)->operations->swap_in ((page), v)

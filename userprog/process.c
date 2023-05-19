@@ -850,15 +850,17 @@ load_segment(struct file *file, off_t ofs, uint8_t *upage,
         /* 초기화 해야 할 바이트 수*/
         size_t page_zero_bytes = PGSIZE - page_read_bytes;
 
-		struct container* container = (struct container*)malloc(sizeof(struct container));
-		container->file = file;
-        container->offset = ofs;
-		container->read_bytes = page_read_bytes;
         /* TODO: Set up aux to pass information to the lazy_load_segment. */
-        void *aux = NULL;
-        /* 가상 메모리 페이지를 할당하고 이 페이지를 초기화하는 작업을 수행 */
-        if (!vm_alloc_page_with_initializer(VM_ANON, upage, writable, lazy_load_segment, aux)) return false;
-
+		struct lazy_load_info *aux = malloc(sizeof(struct lazy_load_info));
+		aux->file= file;
+		aux->ofs = ofs;
+		aux->page_read_bytes = page_read_bytes;
+		aux->page_zero_bytes = page_zero_bytes;
+		if (!vm_alloc_page_with_initializer (VM_ANON, upage,
+					writable, lazy_load_segment, aux)) {
+			free(aux);
+			return false;
+		}
         /* Advance. */
         /* 다음 반복에서 읽어야 할 남은 바이트 수가 갱신 */
         read_bytes -= page_read_bytes;
@@ -876,15 +878,20 @@ load_segment(struct file *file, off_t ofs, uint8_t *upage,
 static bool
 setup_stack(struct intr_frame *if_)
 {
-    bool success = false;
     void *stack_bottom = (void *)(((uint8_t *)USER_STACK) - PGSIZE);
 
     /* TODO: Map the stack on stack_bottom and claim the page immediately.
      * TODO: If success, set the rsp accordingly.
      * TODO: You should mark the page is stack. */
     /* TODO: Your code goes here */
-
-    return success;
+   	if (vm_alloc_page(VM_ANON | VM_MARKER_STACK, stack_bottom, 1)) {
+		if (vm_claim_page(stack_bottom)) {
+			if_->rsp = USER_STACK;
+			thread_current()->user_stack_bottom = stack_bottom;
+			return true;
+		}
+	}
+	return false;
 }
 
 #endif /* VM */

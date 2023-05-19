@@ -16,6 +16,7 @@
 void syscall_entry(void);
 void syscall_handler(struct intr_frame *);
 struct page *check_address(const void *addr);
+static void check_valid_buffer (void *buffer, unsigned size, bool is_write_to_buffer);
 
 void halt(void);
 void exit(int status);
@@ -107,9 +108,11 @@ void syscall_handler(struct intr_frame *f)
 		f->R.rax = filesize(f->R.rdi);
 		break;
 	case SYS_READ:
+		check_valid_buffer(f->R.rsi, f->R.rdx, 1);
 		f->R.rax = read(f->R.rdi, f->R.rsi, f->R.rdx);
 		break;
 	case SYS_WRITE:
+		check_valid_buffer(f->R.rsi, f->R.rdx, 0);
 		f->R.rax = write(f->R.rdi, f->R.rsi, f->R.rdx);
 		break;
 	case SYS_SEEK:
@@ -163,10 +166,7 @@ void syscall_handler(struct intr_frame *f)
 /* 입력된 주소가 유효한 주소인지 확인하고, 그렇지 않으면 프로세스를 종료시키는 함수 */
 struct page *check_address(const void *addr)
 {
-	struct thread *curr = thread_current();
-
-	if (is_kernel_vaddr(addr) || addr == NULL || pml4_get_page(curr->pml4, addr) == NULL)
-	{
+	if (addr == NULL || is_kernel_vaddr(addr)) {
 		exit(-1);
 	} else {
 		struct page *page = spt_find_page(&thread_current()->spt, addr);
@@ -177,6 +177,16 @@ struct page *check_address(const void *addr)
 		}
 	}
 }
+
+static void check_valid_buffer (void *buffer, unsigned size, bool is_write_to_buffer) {
+	for (uint64_t uaddr = (uint64_t)buffer ; uaddr < (uint64_t)buffer + size; uaddr += PGSIZE) {
+		struct page *page = check_address(uaddr);
+		if (is_write_to_buffer == true && page->writable == false) {
+			exit(-1);
+		}
+	}
+}
+
 
 // void get_argument(void *rsp, int **arg, int count)
 // {
