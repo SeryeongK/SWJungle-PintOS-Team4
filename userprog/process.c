@@ -730,7 +730,7 @@ load_segment(struct file *file, off_t ofs, uint8_t *upage,
 /**
  *  사용자 프로세스의 스택을 설정
  * 스택은 프로세스가 함수 호출을 수행하거나 지역 변수를 저장할 때 사용하는 메모리 영역  🤬
-*/
+ */
 static bool
 setup_stack(struct intr_frame *if_)
 {
@@ -740,7 +740,7 @@ setup_stack(struct intr_frame *if_)
     kpage = palloc_get_page(PAL_USER | PAL_ZERO);
     if (kpage != NULL)
     {
-        /* 할당받은 페이지를 사용자 스택의 주소 공간에 매핑 
+        /* 할당받은 페이지를 사용자 스택의 주소 공간에 매핑
         install_page 함수는 가상 주소에 실제 메모리 페이지를 매핑하는 함수 */
         success = install_page(((uint8_t *)USER_STACK) - PGSIZE, kpage, true);
         if (success)
@@ -749,7 +749,6 @@ setup_stack(struct intr_frame *if_)
             palloc_free_page(kpage);
     }
     return success;
-
 }
 
 /* Adds a mapping from user virtual address UPAGE to kernel
@@ -776,41 +775,32 @@ install_page(void *upage, void *kpage, bool writable)
 /* From here, codes will be used after project 3.
  * If you want to implement the function for only project 2, implement it on the
  * upper block. */
-/**
- * 실제로 해당 데이터가 필요한 시점에 데이터를 로드하는 함수
- * @param page 로드할 페이지
- * @param aux 보조정보 (container 구조체))
- * @return bool
-*/
+/* 실제로 해당 데이터가 필요한 시점에 데이터를 로드하는 함수 */
 static bool
 lazy_load_segment(struct page *page, void *aux)
 {
-    /* TODO: Load the segment from the file */
-    /* TODO: This called when the first page fault occurs on address VA. */
-    /* TODO: VA is available when calling this function. */
-
     /* aux를 container 구조체로 변환하여 필요한 정보 추출 */
-	struct file* file = ((struct container*)aux)->file;
-	off_t offset = ((struct container*)aux)->offset;
-	size_t read_bytes = ((struct container*)aux)->read_bytes;
-	size_t size_for_zero = PGSIZE - read_bytes;
+    struct file *file = ((struct container *)aux)->file;
+    off_t offset = ((struct container *)aux)->offset;
+    size_t read_bytes = ((struct container *)aux)->read_bytes;
+    size_t size_for_zero = PGSIZE - read_bytes;
 
     /* 파일 포인터를 올바른 오프셋으로 이동 */
-	file_seek(file,offset);
-	//file_read(file,buffer,size)
+    file_seek(file, offset);
 
-    /* 파일의 내용을 페이지의 커널 가상 주소(page->frame->kva)에 읽음*/
-	if(file_read(file,page->frame->kva,read_bytes) != (int)read_bytes){
+    if (file_read(file, page->frame->kva, read_bytes) != (int)read_bytes)
+    {
         /* 읽은 바이트 수가 read_bytes와 일치하지 않으면, 페이지 할당을 해제 */
-		palloc_free_page(page->frame->kva);
-		return false;
-	}
+        palloc_free_page(page->frame->kva);
+        return false;
+    }
     /* 나머지 부분을 0으로 초기화 */
-	memset(page->frame->kva + read_bytes,0,size_for_zero);
-    /* 파일 포인터의 위치를 다시 오프셋으로 이동 */
-	file_seek(file,offset);
+    memset(page->frame->kva + read_bytes, 0, size_for_zero);
+    /* 파일 포인터의 위치를 다시 오프셋으로 이동
+       🤔 왜 다음 페이지의 시작 지점이 아닌 로드한 페이지의 시작 지점으로 오프셋을 이동? */
+    file_seek(file, offset);
 
-	return true;
+    return true;
 }
 
 /* Loads a segment starting at offset OFS in FILE at address
@@ -827,49 +817,38 @@ lazy_load_segment(struct page *page, void *aux)
  *
  * Return true if successful, false if a memory allocation error
  * or disk read error occurs. */
-/**
- * 특정 파일의 특정 오프셋에서 시작하는 세그먼트를 로드하는 역할을 하는 함수
-*/
+/* 특정 파일의 특정 오프셋에서 시작하는 세그먼트를 로드하는 역할을 하는 함수 */
 static bool
 load_segment(struct file *file, off_t ofs, uint8_t *upage,
              uint32_t read_bytes, uint32_t zero_bytes, bool writable)
 {
     ASSERT((read_bytes + zero_bytes) % PGSIZE == 0);
     ASSERT(pg_ofs(upage) == 0);
-    ASSERT(ofs % PGSIZE == 0);
+    ASSERT(ofs % PGSIZE == 0); /* 오프셋이 페이지 크기로 정렬되어있는지 */
 
-    file_seek(file,ofs);
+    file_seek(file, ofs);
 
     while (read_bytes > 0 || zero_bytes > 0)
     {
-        /* Do calculate how to fill this page.
-         * We will read PAGE_READ_BYTES bytes from FILE
-         * and zero the final PAGE_ZERO_BYTES bytes. */
-        /* 파일에서 읽을 바이트 수 */
-        size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE;
-        /* 초기화 해야 할 바이트 수*/
-        size_t page_zero_bytes = PGSIZE - page_read_bytes;
+        size_t page_read_bytes = read_bytes < PGSIZE ? read_bytes : PGSIZE; /* 파일에서 읽을 바이트 수 */
+        size_t page_zero_bytes = PGSIZE - page_read_bytes;                  /* 초기화 해야 할 바이트 수*/
 
         /* TODO: Set up aux to pass information to the lazy_load_segment. */
-		struct lazy_load_info *aux = malloc(sizeof(struct lazy_load_info));
-		aux->file= file;
-		aux->ofs = ofs;
-		aux->page_read_bytes = page_read_bytes;
-		aux->page_zero_bytes = page_zero_bytes;
-		if (!vm_alloc_page_with_initializer (VM_ANON, upage,
-					writable, lazy_load_segment, aux)) {
-			free(aux);
-			return false;
-		}
+        struct lazy_load_info *aux = malloc(sizeof(struct lazy_load_info));
+        aux->file = file;
+        aux->ofs = ofs;
+        aux->page_read_bytes = page_read_bytes;
+        aux->page_zero_bytes = page_zero_bytes;
+        if (!vm_alloc_page_with_initializer(VM_ANON, upage, writable, lazy_load_segment, aux))
+        {
+            free(aux);
+            return false;
+        }
         /* Advance. */
-        /* 다음 반복에서 읽어야 할 남은 바이트 수가 갱신 */
-        read_bytes -= page_read_bytes;
-        /* 다음 반복에서 0으로 채워야 할 남은 바이트 수가 갱신 */
-		zero_bytes -= page_zero_bytes;
-        /* PGSIZE 만큼 증가시켜 다음 페이지의 주소로 이동 */
-		upage += PGSIZE;
-        /* ofs에 더해 다음에 읽어야 할 파일 위치를 갱신 */
-		ofs += page_read_bytes;
+        read_bytes -= page_read_bytes; /* 다음 반복에서 읽어야 할 남은 바이트 수가 갱신 */
+        zero_bytes -= page_zero_bytes; /* 다음 반복에서 0으로 채워야 할 남은 바이트 수가 갱신 */
+        upage += PGSIZE;               /* PGSIZE 만큼 증가시켜 다음 페이지의 주소로 이동 */
+        ofs += page_read_bytes;        /* ofs에 더해 다음에 읽어야 할 파일 위치를 갱신 */
     }
     return true;
 }
@@ -884,14 +863,16 @@ setup_stack(struct intr_frame *if_)
      * TODO: If success, set the rsp accordingly.
      * TODO: You should mark the page is stack. */
     /* TODO: Your code goes here */
-   	if (vm_alloc_page(VM_ANON | VM_MARKER_STACK, stack_bottom, 1)) {
-		if (vm_claim_page(stack_bottom)) {
-			if_->rsp = USER_STACK;
-			thread_current()->user_stack_bottom = stack_bottom;
-			return true;
-		}
-	}
-	return false;
+    if (vm_alloc_page(VM_ANON | VM_MARKER_STACK, stack_bottom, 1))
+    {
+        if (vm_claim_page(stack_bottom))
+        {
+            if_->rsp = USER_STACK;
+            thread_current()->user_stack_bottom = stack_bottom;
+            return true;
+        }
+    }
+    return false;
 }
 
 #endif /* VM */
