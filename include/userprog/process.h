@@ -14,9 +14,12 @@ void argument_stack(char **parse, int count, struct intr_frame *if_);
 struct thread *get_child_process(int pid);
 /*-------------------------[project 2]-------------------------*/
 /*-------------------------[project 3]-------------------------*/
-static bool install_page(void *upage, void *kpage, bool writable);
+bool install_page(void *upage, void *kpage, bool writable);
+bool lazy_load_segment(struct page *page, void *aux);
+struct file *process_get_file(int fd);
 
-struct container{
+struct container
+{
     struct file *file;
     off_t offset;
     size_t read_bytes;

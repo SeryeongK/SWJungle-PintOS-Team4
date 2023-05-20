@@ -173,7 +173,6 @@ static void __do_fork(void *aux)
         goto error;
 
     process_activate(current);
-
 #ifdef VM
     supplemental_page_table_init(&current->spt);
     if (!supplemental_page_table_copy(&current->spt, &parent->spt))
@@ -251,19 +250,8 @@ int process_exec(void *f_name)
 #ifdef VM
     supplemental_page_table_init(&thread_current()->spt);
 #endif
-
     /* And then load the binary */
     success = load(file_name, &_if);
-
-    /* project2 system call */
-    // if (success)
-    // {
-    // 	struct thread *curr = thread_current();
-    // 	struct thread *target = list_entry(&curr->child_elem, struct thread, child_elem);
-    // 	sema_up(&target->wait_sema);
-    // }
-    /* out */
-
     /* If load failed, quit. */
     /*-------------------------[project 2]-------------------------*/
     if (!success)
@@ -271,14 +259,10 @@ int process_exec(void *f_name)
         palloc_free_page(file_name);
         return -1;
     }
-
     argument_stack(values, i, &_if);
     /*-------------------------[project 2]-------------------------*/
 
     // hex_dump(_if.rsp, _if.rsp, USER_STACK - _if.rsp, true);
-
-    // palloc_free_page(file_name);
-
     /* Start switched process. */
     do_iret(&_if);
     NOT_REACHED();
@@ -664,7 +648,7 @@ struct thread *get_child_process(int pid)
  * outside of #ifndef macro. */
 
 /* load() helpers. */
-static bool install_page(void *upage, void *kpage, bool writable);
+bool install_page(void *upage, void *kpage, bool writable);
 
 /* Loads a segment starting at offset OFS in FILE at address
  * UPAGE.  In total, READ_BYTES + ZERO_BYTES bytes of virtual
@@ -775,9 +759,18 @@ install_page(void *upage, void *kpage, bool writable)
 /* From here, codes will be used after project 3.
  * If you want to implement the function for only project 2, implement it on the
  * upper block. */
+
+bool install_page(void *upage, void *kpage, bool writable)
+{
+    struct thread *t = thread_current();
+
+    /* Verify that there's not already a page at that virtual
+     * address, then map our page there. */
+    return (pml4_get_page(t->pml4, upage) == NULL && pml4_set_page(t->pml4, upage, kpage, writable));
+}
+
 /* 실제로 해당 데이터가 필요한 시점에 데이터를 로드하는 함수 */
-static bool
-lazy_load_segment(struct page *page, void *aux)
+bool lazy_load_segment(struct page *page, void *aux)
 {
     /* aux를 container 구조체로 변환하여 필요한 정보 추출 */
     struct file *file = ((struct container *)aux)->file;
@@ -868,7 +861,7 @@ setup_stack(struct intr_frame *if_)
         if (vm_claim_page(stack_bottom))
         {
             if_->rsp = USER_STACK;
-            thread_current()->user_stack_bottom = stack_bottom;
+            thread_current()->stack_bottom = stack_bottom;
             return true;
         }
     }
