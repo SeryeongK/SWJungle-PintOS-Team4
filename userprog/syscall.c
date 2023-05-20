@@ -9,14 +9,19 @@
 #include "intrinsic.h"
 /*-------------------------[project 2]-------------------------*/
 #include "filesys/filesys.h"
+#include "filesys/file.h"
 #include "userprog/process.h"
 #include "devices/input.h"
+/*-------------------------[project 2]-------------------------*/
+/*-------------------------[project 3]-------------------------*/
 #include "threads/palloc.h"
+#include "vm/vm.h"
+/*-------------------------[project 3]-------------------------*/
 
 void syscall_entry(void);
 void syscall_handler(struct intr_frame *);
 struct page *check_address(const void *addr);
-static void check_valid_buffer (void *buffer, unsigned size, bool is_write_to_buffer);
+void check_valid_buffer(void *buffer, unsigned size, bool is_write_to_buffer);
 
 void halt(void);
 void exit(int status);
@@ -32,6 +37,10 @@ void close(int fd);
 tid_t fork(const char *thread_name, struct intr_frame *f);
 int wait(tid_t pid);
 unsigned tell(int fd);
+/*-------------------------[project 3]-------------------------*/
+void *mmap(void *addr, size_t length, int writable, int fd, off_t offset);
+void munmap(void *addr);
+/*-------------------------[project 3]-------------------------*/
 
 struct file *process_get_file(int fd);
 void process_close_file(int fd);
@@ -67,14 +76,18 @@ void syscall_init(void)
 	write_msr(MSR_SYSCALL_MASK,
 			  FLAG_IF | FLAG_TF | FLAG_DF | FLAG_IOPL | FLAG_AC | FLAG_NT);
 
-	/* project2 */
+	/*-------------------------[project 2]-------------------------*/
 	lock_init(&filesys_lock);
-	/* project2 */
+	/*-------------------------[project 2]-------------------------*/
 }
 
 /* The main system call interface */
 void syscall_handler(struct intr_frame *f)
 {
+#ifdef VM
+	thread_current()->rsp_stack = f->rsp;
+#endif
+
 	switch (f->R.rax) // rax값이 들어가야함.
 	{
 	case SYS_HALT:
@@ -127,12 +140,12 @@ void syscall_handler(struct intr_frame *f)
 	// case SYS_DUP2:
 	// 	dup2(f->R.rdi, f->R.rsi);
 	// 	break;
-	// case SYS_MMAP:
-	// 	mmap(f->R.rdi, f->R.rsi, f->R.rdx, f->R.r10, f->R.r8);
-	// 	break;
-	// case SYS_MUNMAP:
-	// 	munmap(f->R.rdi);
-	// 	break;
+	case SYS_MMAP:
+		mmap(f->R.rdi, f->R.rsi, f->R.rdx, f->R.r10, f->R.r8);
+		break;
+	case SYS_MUNMAP:
+		munmap(f->R.rdi);
+		break;
 	// case SYS_CHDIR:
 	// 	chdir(f->R.rdi);
 	// 	break;
@@ -166,27 +179,35 @@ void syscall_handler(struct intr_frame *f)
 /* 입력된 주소가 유효한 주소인지 확인하고, 그렇지 않으면 프로세스를 종료시키는 함수 */
 struct page *check_address(const void *addr)
 {
-	if (addr == NULL || is_kernel_vaddr(addr)) {
+	if (addr == NULL || is_kernel_vaddr(addr))
+	{
 		exit(-1);
-	} else {
+	}
+	else
+	{
 		struct page *page = spt_find_page(&thread_current()->spt, addr);
-		if (page == NULL) {
+		if (page == NULL)
+		{
 			exit(-1);
-		} else {
+		}
+		else
+		{
 			return page;
 		}
 	}
 }
 
-static void check_valid_buffer (void *buffer, unsigned size, bool is_write_to_buffer) {
-	for (uint64_t uaddr = (uint64_t)buffer ; uaddr < (uint64_t)buffer + size; uaddr += PGSIZE) {
+void check_valid_buffer(void *buffer, unsigned size, bool is_write_to_buffer)
+{
+	for (uint64_t uaddr = (uint64_t)buffer; uaddr < (uint64_t)buffer + size; uaddr += PGSIZE)
+	{
 		struct page *page = check_address(uaddr);
-		if (is_write_to_buffer == true && page->writable == false) {
+		if (is_write_to_buffer == true && page->writable == false)
+		{
 			exit(-1);
 		}
 	}
 }
-
 
 // void get_argument(void *rsp, int **arg, int count)
 // {
@@ -211,7 +232,7 @@ void exit(int status)
 	struct thread *cur = thread_current();
 	cur->exit_status = status;
 	printf("%s: exit(%d)\n", thread_name(), status);
-	thread_exit(); 
+	thread_exit();
 }
 
 /* 'function함수를 수행하는 스레드'를 생성하는 시스템콜 함수 */
@@ -295,8 +316,8 @@ int open(const char *file)
 /* 열린파일의 데이터를 읽는 시스템콜 함수*/
 int read(int fd, void *buffer, unsigned size)
 {
-	check_address(buffer);	
-	check_address(buffer + size - 1); 
+	check_address(buffer);
+	check_address(buffer + size - 1);
 
 	unsigned char *buf = buffer;
 	int read_count;
@@ -320,7 +341,7 @@ int read(int fd, void *buffer, unsigned size)
 			key = input_getc();
 			*buf++ = key;
 			if (key == '\0')
-			{ 
+			{
 				break;
 			}
 		}
@@ -345,7 +366,7 @@ int write(int fd, const void *buffer, unsigned size)
 
 	int write_count;
 	struct file *fileobj = process_get_file(fd);
-	
+
 	if (fileobj == NULL)
 	{
 		return -1;
@@ -423,6 +444,40 @@ int wait(tid_t pid)
 	return process_wait(pid);
 }
 
+/*-------------------------[project 3]-------------------------*/
+void *mmap(void *addr, size_t length, int writable, int fd, off_t offset)
+{
+
+	if (offset % PGSIZE != 0)
+	{
+		return NULL;
+	}
+
+	if (pg_round_down(addr) != addr || is_kernel_vaddr(addr) || addr == NULL || (long long)length <= 0)
+		return NULL;
+
+	if (fd == 0 || fd == 1)
+		exit(-1);
+
+	// vm_overlap
+	if (spt_find_page(&thread_current()->spt, addr))
+		return NULL;
+
+	struct file *target = process_get_file(fd);
+	// struct file *target = find_file_by_fd(fd);
+
+	if (target == NULL)
+		return NULL;
+
+	void *ret = do_mmap(addr, length, writable, target, offset);
+	return ret;
+}
+
+void munmap(void *addr)
+{
+	do_munmap(addr);
+}
+
 /*  현재 스레드의 fdt에 주어진 파일을 추가하고, 추가된 파일의 식별자를 반환하는 함수*/
 int process_add_file(struct file *f)
 {
@@ -435,9 +490,9 @@ int process_add_file(struct file *f)
 	}
 
 	if (curr->next_fd >= FDCOUNT_LIMIT)
-		{
-			return -1;
-		}
+	{
+		return -1;
+	}
 
 	fdt[curr->next_fd] = f;
 	return curr->next_fd;
